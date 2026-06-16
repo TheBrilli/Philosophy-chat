@@ -1,12 +1,323 @@
-{
-  "name": "anon-e2e-chat-server",
-  "version": "1.0.0",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "ws": "^8.16.0",
-    "uuid": "^9.0.0"
-  }
-}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Анонимный чат</title>
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --surface: #141414;
+            --text: #e0e0e0;
+            --text-secondary: #888;
+            --accent: #7c3aed;
+            --online: #10b981;
+            --border: #2a2a2a;
+            --sent-bg: #1e1b4b;
+            --received-bg: #1a1a1a;
+            --input-bg: #0f0f0f;
+            --lock: #10b981;
+            --danger: #ef4444;
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+            background: var(--bg);
+            height: 100vh; height: 100dvh;
+            display: flex; justify-content: center; align-items: center;
+            color: var(--text); overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none; user-select: none;
+            padding-bottom: var(--safe-bottom);
+        }
+        #messageInput, #joinName { -webkit-user-select: text; user-select: text; }
+        .join-screen { width: 100%; max-width: 400px; padding: 20px; text-align: center; }
+        .join-screen.hidden { display: none; }
+        .join-icon { font-size: 64px; margin-bottom: 16px; }
+        .join-title { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+        .join-subtitle { font-size: 14px; color: var(--text-secondary); margin-bottom: 24px; }
+        .join-card { background: var(--surface); border-radius: 18px; padding: 24px; border: 1px solid var(--border); text-align: left; }
+        .join-card label { display: block; font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; font-weight: 600; }
+        .join-card input { width: 100%; padding: 14px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 12px; color: var(--text); font-size: 16px; outline: none; font-family: inherit; margin-bottom: 16px; }
+        .join-card input:focus { border-color: var(--accent); }
+        .key-status { display: flex; align-items: center; gap: 8px; padding: 12px; background: var(--input-bg); border-radius: 10px; margin-bottom: 16px; font-size: 13px; }
+        .key-status.generating { color: #f59e0b; }
+        .key-status.ready { color: var(--lock); }
+        .key-status.error { color: var(--danger); }
+        .btn { width: 100%; padding: 14px; border-radius: 12px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:active { opacity: 0.8; }
+        .btn-primary:disabled { opacity: 0.5; }
+        .privacy-note { margin-top: 20px; font-size: 12px; color: var(--text-secondary); }
+        .privacy-note span { color: var(--lock); font-weight: 600; }
+        .app { width: 100%; height: 100vh; height: 100dvh; display: none; flex-direction: column; background: var(--bg); }
+        .app.visible { display: flex; }
+        .app-header { padding: 12px 14px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .header-left { display: flex; align-items: center; gap: 10px; }
+        .header-avatar { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #a78bfa); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: white; }
+        .header-info h2 { font-size: 15px; font-weight: 600; }
+        .header-info .status { font-size: 10px; color: var(--online); display: flex; align-items: center; gap: 4px; }
+        .header-info .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--online); }
+        .header-info .status.offline { color: var(--danger); }
+        .header-info .status.offline .dot { background: var(--danger); }
+        .header-actions { display: flex; gap: 6px; align-items: center; }
+        .lang-select { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 10px; font-size: 16px; cursor: pointer; outline: none; font-family: inherit; }
+        .lang-select option { background: var(--surface); }
+        .icon-btn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+        .icon-btn:active { border-color: var(--accent); background: var(--accent); }
+        .messages-area { flex: 1; overflow-y: auto; padding: 14px 10px; -webkit-overflow-scrolling: touch; }
+        .message-group { margin-bottom: 10px; animation: fadeIn 0.2s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .message-row { display: flex; gap: 6px; align-items: flex-start; }
+        .message-row.mine { flex-direction: row-reverse; }
+        .msg-avatar { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; background: linear-gradient(135deg, #6366f1, #a78bfa); }
+        .message-row.mine .msg-avatar { background: linear-gradient(135deg, #10b981, #34d399); }
+        .message-block { max-width: 78%; }
+        .message-meta { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; font-size: 10px; }
+        .message-row.mine .message-meta { justify-content: flex-end; }
+        .msg-author { font-weight: 600; font-size: 11px; color: var(--accent); }
+        .msg-author.me { color: var(--online); }
+        .msg-time { color: var(--text-secondary); font-size: 9px; }
+        .msg-lock { font-size: 9px; }
+        .msg-bubble { padding: 9px 12px; border-radius: 14px; background: var(--received-bg); font-size: 14px; line-height: 1.5; word-wrap: break-word; }
+        .message-row.mine .msg-bubble { background: var(--sent-bg); }
+        .message-row.system { justify-content: center; }
+        .message-row.system .msg-bubble { background: transparent; color: var(--text-secondary); font-size: 11px; font-style: italic; max-width: 90%; }
+        .message-row.system .msg-avatar, .message-row.system .message-meta { display: none; }
+        .typing-bar { padding: 2px 14px; min-height: 18px; }
+        .typing-indicator { display: none; align-items: center; gap: 5px; font-size: 11px; color: var(--text-secondary); }
+        .typing-indicator.active { display: flex; }
+        .typing-dots { display: flex; gap: 2px; }
+        .typing-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--accent); animation: bounce 1.4s infinite; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-5px); } }
+        .input-bar { padding: 10px 12px 12px; background: var(--surface); border-top: 1px solid var(--border); padding-bottom: calc(12px + var(--safe-bottom)); }
+        .input-row { display: flex; gap: 8px; align-items: flex-end; }
+        .input-field { flex: 1; background: var(--input-bg); border: 1px solid var(--border); border-radius: 20px; padding: 10px 14px; }
+        .input-field:focus-within { border-color: var(--accent); }
+        #messageInput { width: 100%; background: none; border: none; color: var(--text); font-size: 16px; outline: none; resize: none; max-height: 100px; font-family: inherit; }
+        #messageInput::placeholder { color: var(--text-secondary); }
+        .send-btn { width: 38px; height: 38px; border-radius: 50%; background: var(--accent); border: none; color: white; cursor: pointer; flex-shrink: 0; font-size: 17px; }
+        .send-btn:active { opacity: 0.8; }
+        .hint-text { text-align: center; font-size: 9px; color: var(--text-secondary); margin-top: 5px; }
+        @media (min-width: 768px) { .app { max-width: 550px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); margin: 0 auto; } .message-block { max-width: 65%; } }
+        @media (max-width: 380px) { .join-title { font-size: 22px; } .message-block { max-width: 85%; } }
+    </style>
+</head>
+<body>
+    <div class="join-screen" id="joinScreen">
+        <div class="join-icon">🕶️</div>
+        <h1 class="join-title">Анонимный чат</h1>
+        <p class="join-subtitle">End-to-end шифрование<br>Без регистрации</p>
+        <div class="join-card">
+            <label>Имя</label>
+            <input type="text" id="joinName" placeholder="Аноним" maxlength="30" autofocus>
+            <div class="key-status generating" id="keyStatus">
+                <span>🔐</span>
+                <span id="keyStatusText">Генерация ключей...</span>
+            </div>
+            <button class="btn btn-primary" id="joinBtn" disabled>Войти в чат</button>
+        </div>
+        <div class="privacy-note"><span>🔒 Ключи на устройстве</span><br>Сервер не видит сообщения</div>
+    </div>
+
+    <div class="app" id="mainApp">
+        <div class="app-header">
+            <div class="header-left">
+                <div class="header-avatar" id="myAvatar">?</div>
+                <div class="header-info">
+                    <h2 id="myName">—</h2>
+                    <div class="status" id="connectionStatus"><span class="dot"></span><span id="statusText">Подключение...</span></div>
+                </div>
+            </div>
+            <div class="header-actions">
+                <select class="lang-select" id="langSelect">
+                    <option value="ru">🇷🇺</option><option value="en">🇬🇧</option><option value="es">🇪🇸</option><option value="fr">🇫🇷</option><option value="de">🇩🇪</option><option value="zh">🇨🇳</option><option value="ja">🇯🇵</option><option value="ko">🇰🇷</option>
+                </select>
+                <button class="icon-btn" id="inviteBtn">🔗</button>
+                <button class="icon-btn" id="settingsBtn">✏️</button>
+                <button class="icon-btn" id="leaveBtn">🚪</button>
+            </div>
+        </div>
+        <div class="messages-area" id="messagesArea">
+            <div style="text-align:center;padding:40px 20px;color:var(--text-secondary);">
+                <div style="font-size:44px;margin-bottom:10px;">🔒</div><div>Сообщения зашифрованы</div>
+            </div>
+        </div>
+        <div class="typing-bar">
+            <div class="typing-indicator" id="typingIndicator">
+                <div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+                <span id="typingText"></span>
+            </div>
+        </div>
+        <div class="input-bar">
+            <div class="input-row">
+                <div class="input-field"><textarea id="messageInput" placeholder="Сообщение..." rows="1" disabled></textarea></div>
+                <button class="send-btn" id="sendBtn">➤</button>
+            </div>
+            <div class="hint-text">🔒 Зашифровано end-to-end</div>
+        </div>
+    </div>
+
+    <script>
+        // ====== НАСТРОЙКА СЕРВЕРА ======
+        // ЗАМЕНИ НА СВОЙ URL ПОСЛЕ ДЕПЛОЯ НА RENDER
+        const SERVER_URL = 'wss://ТВОЙ-СЕРВЕР.onrender.com';
+        const TRANSLATE_URL = null; // Без перевода (можно добавить позже)
+
+        // ====== СОСТОЯНИЕ ======
+        let state = {
+            ws: null, myId: null, myName: '', myLang: 'ru',
+            keys: null, peers: new Map(), connected: false
+        };
+
+        // ====== УТИЛИТЫ ======
+        function ab2b64(buf) {
+            let bin = '';
+            new Uint8Array(buf).forEach(b => bin += String.fromCharCode(b));
+            return btoa(bin);
+        }
+        function b642ab(b64) {
+            const bin = atob(b64);
+            const buf = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+            return buf.buffer;
+        }
+        function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+        function init(n) { return (n || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2); }
+
+        // ====== КРИПТО ======
+        async function genKeys() {
+            const kp = await crypto.subtle.generateKey(
+                { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]), hash: 'SHA-256' },
+                true, ['encrypt','decrypt']
+            );
+            return {
+                pub: ab2b64(await crypto.subtle.exportKey('spki', kp.publicKey)),
+                prv: ab2b64(await crypto.subtle.exportKey('pkcs8', kp.privateKey))
+            };
+        }
+
+        async function encrypt(text, peers) {
+            const aes = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt','decrypt']);
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(text));
+            const raw = await crypto.subtle.exportKey('raw', aes);
+            const keys = {};
+            for (const [id, p] of peers) {
+                if (!p.pub) continue;
+                try {
+                    const pk = await crypto.subtle.importKey('spki', b642ab(p.pub), { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+                    keys[id] = ab2b64(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pk, raw));
+                } catch(e) {}
+            }
+            return { d: ab2b64(enc), k: keys, i: ab2b64(iv) };
+        }
+
+        async function decrypt(d, k, i, prv) {
+            try {
+                const pk = await crypto.subtle.importKey('pkcs8', b642ab(prv), { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['decrypt']);
+                const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, pk, b642ab(k));
+                const aes = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+                const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b642ab(i) }, aes, b642ab(d));
+                return new TextDecoder().decode(dec);
+            } catch { return null; }
+        }
+
+        // ====== UI ======
+        function addMsg(msg, text, mine, sys) {
+            const area = document.getElementById('messagesArea');
+            const ph = area.querySelector('[style*="text-align"]');
+            if (ph) area.innerHTML = '';
+
+            const g = document.createElement('div'); g.className = 'message-group';
+            const row = document.createElement('div');
+            row.className = `message-row${sys ? ' system' : ''}${mine ? ' mine' : ''}`;
+
+            if (!sys) {
+                const av = document.createElement('div'); av.className = 'msg-avatar';
+                av.textContent = init(msg.senderName); row.appendChild(av);
+            }
+
+            const block = document.createElement('div'); block.className = 'message-block';
+            if (!sys) {
+                const meta = document.createElement('div'); meta.className = 'message-meta';
+                meta.innerHTML = `<span class="msg-author${mine ? ' me' : ''}">${mine ? 'Вы' : esc(msg.senderName||'?')}</span><span class="msg-lock">🔒</span><span class="msg-time">${new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>`;
+                block.appendChild(meta);
+            }
+            const bub = document.createElement('div'); bub.className = 'msg-bubble';
+            bub.textContent = text; block.appendChild(bub);
+            row.appendChild(block); g.appendChild(row); area.appendChild(g);
+            requestAnimationFrame(() => area.scrollTop = area.scrollHeight);
+        }
+
+        function updateStatus(c) {
+            const el = document.getElementById('connectionStatus');
+            const txt = document.getElementById('statusText');
+            if (c) { el.className = 'status'; txt.textContent = 'Онлайн'; }
+            else { el.className = 'status offline'; txt.textContent = 'Переподключение...'; }
+        }
+
+        function updateUI() {
+            document.getElementById('myAvatar').textContent = init(state.myName);
+            document.getElementById('myName').textContent = state.myName;
+        }
+
+        // ====== СЕТЬ ======
+        function connect() {
+            if (state.ws?.readyState === WebSocket.OPEN) return;
+            updateStatus(false);
+            try {
+                const ws = new WebSocket(SERVER_URL);
+                ws.onopen = () => {
+                    state.ws = ws; state.connected = true; updateStatus(true);
+                    ws.send(JSON.stringify({ type: 'join', name: state.myName, publicKey: state.keys.pub, language: state.myLang }));
+                };
+                ws.onmessage = async (e) => {
+                    const d = JSON.parse(e.data);
+                    if (d.type === 'joined') { state.myId = d.userId; state.myName = d.name; updateUI(); }
+                    else if (d.type === 'history') {
+                        document.getElementById('messagesArea').innerHTML = '';
+                        for (const m of d.messages || []) {
+                            if (m.type === 'system') addMsg(m, m.text, false, true);
+                            else await handleMsg(m);
+                        }
+                    }
+                    else if (d.type === 'new_encrypted_message') await handleMsg(d.message);
+                    else if (d.type === 'user_list') {
+                        state.peers.clear();
+                        for (const u of d.users||[]) { if (u.id !== state.myId) state.peers.set(u.id, { name: u.name, pub: u.publicKey }); }
+                        ws.send(JSON.stringify({ type: 'request_user_keys' }));
+                    }
+                    else if (d.type === 'user_keys') {
+                        for (const u of d.users||[]) { if (u.id !== state.myId && u.publicKey) state.peers.set(u.id, { name: u.name, pub: u.publicKey }); }
+                    }
+                    else if (d.type === 'typing_status') {
+                        const ind = document.getElementById('typingIndicator');
+                        if (d.isTyping && d.userId !== state.myId) {
+                            document.getElementById('typingText').textContent = `${d.userName||'...'} печатает`;
+                            ind.classList.add('active');
+                            clearTimeout(ind._t); ind._t = setTimeout(() => ind.classList.remove('active'), 3000);
+                        }
+                    }
+                    else if (d.type === 'name_changed') { state.myName = d.name; updateUI(); }
+                };
+                ws.onclose = () => { state.connected = false; updateStatus(false); setTimeout(connect, 3000); };
+                ws.onerror = () => { state.connected = false; updateStatus(false); };
+            } catch (e) { setTimeout(connect, 3000); }
+        }
+
+        async function handleMsg(m) {
+            if (m.type === 'system') { addMsg(m, m.text, false, true); return; }
+            if (m.senderId === state.myId) return;
+            let txt = '🔒 [Зашифровано]';
+            if (m.encryptedKeys?.[state.myId] && state.keys) {
+                const dec = await decrypt(m.encryptedData, m.encryptedKeys[state.myId], m.iv, state.keys.prv);
+                if (dec) txt = dec; else txt = '🔒 [Ошибка]';
+            }
+            
